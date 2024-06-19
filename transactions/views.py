@@ -6,8 +6,8 @@ from django.shortcuts import get_object_or_404, redirect
 from django.views import View
 from django.http import HttpResponse
 from django.views.generic import CreateView, ListView
-from transactions.constants import DEPOSIT, WITHDRAWAL,LOAN, LOAN_PAID
-from django.core.mail import EmailMessage, EmailMultiAlternatives
+from transactions.constants import DEPOSIT, WITHDRAWAL,LOAN, LOAN_PAID, TRANSFER
+from django.core.mail import EmailMultiAlternatives
 from django.template.loader import render_to_string
 from datetime import datetime
 from django.db.models import Sum
@@ -15,6 +15,7 @@ from transactions.forms import (
     DepositForm,
     WithdrawForm,
     LoanRequestForm,
+    TransferForm,
 )
 from transactions.models import Transaction
 from accounts.models import UserBankAccount
@@ -224,3 +225,42 @@ class TransferView(FormView):
         print(account_number, amount)
         # You can perform actions with account_number and amount here
         return super().form_valid(form)
+    
+class TransferMoney(TransactionCreateMixin):
+    form_class = TransferForm
+    title = 'Money Transfer'
+
+    def get_initial(self):
+        initial = {'transaction_type': TRANSFER}
+        return initial
+
+    def form_valid(self, form):
+        amount = form.cleaned_data.get('amount')
+        to_account_number = form.cleaned_data.get('to_account')
+        try:
+            to_account = UserBankAccount.objects.get(account_no=to_account_number)
+        except UserBankAccount.DoesNotExist:
+            form.add_error('to_account', 'The account does not exist.')
+            return self.form_invalid(form)
+        account = self.request.user.account
+        account.balance -= amount # amount = 200, tar ager balance = 0 taka new balance = 0+200 = 200
+        to_account.balance += amount 
+        account.save(
+            update_fields=[
+                'balance'
+            ]
+        )
+        to_account.save(
+            update_fields=[
+                'balance'
+            ]
+        )
+
+        messages.success(
+            self.request,
+            f'{"{:,.2f}".format(float(amount))}$ was deposited to your account successfully'
+        )
+        send_transaction_email(self.request.user, amount, "Money Transfer Message", "transactions/money_transfer_email.html")
+        send_transaction_email(to_account.user, amount, "Money Receive Message", "transactions/money_receive_email.html")
+        return super().form_valid(form)
+

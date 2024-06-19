@@ -1,5 +1,6 @@
+from typing import Any
 from django import forms
-from .models import Transaction
+from .models import Transaction,Bank
 from django import forms
 from accounts.models import UserBankAccount
 
@@ -22,7 +23,24 @@ class TransactionForm(forms.ModelForm):
         self.instance.balance_after_transaction = self.account.balance
         return super().save()
 
-
+class TransferForm(TransactionForm):
+    class Meta:
+        model = Transaction
+        fields = [
+            'amount',
+            'transaction_type',
+            'to_account'
+        ]
+    def clean_amount(self):     
+       if Bank.objects.first().is_bankrupt:
+            raise forms.ValidationError(f'The bank is bankrupt, no withdrawals allowed.')
+       amount=self.cleaned_data.get('amount')
+       if amount > self.account.balance:
+           raise forms.ValidationError(
+               f'You have {self.account.balance} $ in your account. '
+               'You can not transfer more than your account balance'
+           )
+       return amount 
 class DepositForm(TransactionForm):
     def clean_amount(self): # amount field ke filter korbo
         min_deposit_amount = 100
@@ -31,13 +49,18 @@ class DepositForm(TransactionForm):
             raise forms.ValidationError(
                 f'You need to deposit at least {min_deposit_amount} $'
             )
-
         return amount
 
 
 class WithdrawForm(TransactionForm):
 
     def clean_amount(self):
+        bank, created = Bank.objects.get_or_create()
+        print(Bank.objects.get().is_bankrupt)
+        # Check if the bank is bankrupt
+        if bank.is_bankrupt:
+            raise forms.ValidationError('The bank is bankrupt, no withdrawals allowed.')
+
         account = self.account
         min_withdraw_amount = 500
         max_withdraw_amount = 20000
